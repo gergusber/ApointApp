@@ -1,0 +1,673 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MODELS
+// ============================================
+
+enum UserRole {
+  USER      // Regular customer
+  BUSINESS  // Business owner
+  ADMIN     // Platform admin
+}
+
+enum DocumentType {
+  DNI
+  PASSPORT
+  CUIT
+  CUIL
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique // Clerk authentication ID
+  email     String   @unique
+  firstName String
+  lastName  String
+  phone     String?  // Argentina format: +54 9 XXX XXX-XXXX
+
+  // Argentina-specific
+  documentType DocumentType?
+  documentNumber String?
+
+  role      UserRole @default(USER)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLogin DateTime?
+
+  // Relations
+  appointments    Appointment[]
+  reviews         Review[]
+  businesses      Business[]      @relation("BusinessOwner")
+  messages        Message[]
+  notifications   UserNotification[]
+
+  @@index([clerkId])
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ============================================
+// BUSINESS MODELS
+// ============================================
+
+enum BusinessStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum Province {
+  BUENOS_AIRES
+  CATAMARCA
+  CHACO
+  CHUBUT
+  CORDOBA
+  CORRIENTES
+  ENTRE_RIOS
+  FORMOSA
+  JUJUY
+  LA_PAMPA
+  LA_RIOJA
+  MENDOZA
+  MISIONES
+  NEUQUEN
+  RIO_NEGRO
+  SALTA
+  SAN_JUAN
+  SAN_LUIS
+  SANTA_CRUZ
+  SANTA_FE
+  SANTIAGO_DEL_ESTERO
+  TIERRA_DEL_FUEGO
+  TUCUMAN
+  CABA // Ciudad Autónoma de Buenos Aires
+}
+
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+
+  // Contact
+  email       String
+  phone       String
+  website     String?
+
+  // Argentina-specific
+  cuit        String   @unique // Tax ID
+
+  // Images
+  logo        String?
+  coverImage  String?
+
+  // Business settings
+  status      BusinessStatus @default(PENDING_VERIFICATION)
+
+  // Subscription
+  subscriptionTier     String   @default("FREE") // FREE, BASIC, PREMIUM
+  subscriptionStatus   String   @default("INACTIVE") // ACTIVE, INACTIVE, EXPIRED
+  subscriptionStart    DateTime?
+  subscriptionEnd      DateTime?
+
+  // Booking settings
+  bookingApprovalHours Int      @default(2) // Hours to approve booking
+  minAdvanceHours      Int      @default(2) // Minimum hours in advance for booking
+  cancellationHours    Int      @default(24) // Hours before for full refund
+  refundPercentage     Int      @default(100) // Refund % for mid-range cancellations
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  verifiedAt  DateTime?
+
+  // Relations
+  ownerId     String
+  owner       User     @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  categories  Category[]
+  locations   Location[]
+  appointments Appointment[]
+  reviews     Review[]
+  professionals Professional[]
+  mercadoPagoAccount MercadoPagoAccount?
+  analytics   BusinessAnalytics[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@index([status])
+  @@index([subscriptionStatus])
+  @@map("businesses")
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+
+  businesses  Business[]
+
+  @@map("categories")
+}
+
+// ============================================
+// LOCATION MODELS
+// ============================================
+
+model Location {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Sucursal Centro"
+
+  // Address
+  address     String
+  city        String
+  province    Province
+  postalCode  String?
+
+  // Coordinates (optional for maps)
+  latitude    Float?
+  longitude   Float?
+
+  // Status
+  isActive    Boolean  @default(true)
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  services    Service[]
+  businessHours BusinessHours[]
+  blockedDates  BlockedDate[]
+  professionalLocations ProfessionalLocation[]
+
+  @@index([businessId])
+  @@index([isActive])
+  @@map("locations")
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model BusinessHours {
+  id         String    @id @default(cuid())
+  dayOfWeek  DayOfWeek
+  openTime   String    // HH:MM format (24-hour)
+  closeTime  String    // HH:MM format
+  isClosed   Boolean   @default(false)
+
+  locationId String
+  location   Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, dayOfWeek])
+  @@map("business_hours")
+}
+
+model BlockedDate {
+  id         String   @id @default(cuid())
+  date       DateTime @db.Date
+  reason     String?
+  isRecurring Boolean @default(false) // For holidays that repeat yearly
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  @@index([locationId, date])
+  @@map("blocked_dates")
+}
+
+// ============================================
+// SERVICE MODELS
+// ============================================
+
+model Service {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?  @db.Text
+  durationMinutes   Int      // Service duration
+  bufferMinutes     Int      @default(0) // Buffer time after service
+  price             Float    // Price in ARS
+
+  // Deposit settings
+  requiresDeposit   Boolean  @default(false)
+  depositAmount     Float?
+  depositPercentage Int?     // Alternative: % of price
+
+  // Booking settings
+  requiresApproval  Boolean  @default(true)
+  maxAdvanceDays    Int      @default(30) // How far in advance can book
+  isActive          Boolean  @default(true)
+
+  // Images
+  image             String?
+
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  locationId        String
+  location          Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  appointments      Appointment[]
+  serviceProfessionals ServiceProfessional[]
+
+  @@index([locationId])
+  @@index([isActive])
+  @@map("services")
+}
+
+// ============================================
+// PROFESSIONAL MODELS
+// ============================================
+
+model Professional {
+  id          String   @id @default(cuid())
+  firstName   String
+  lastName    String
+  title       String?  // e.g., "Dra.", "Lic."
+  bio         String?  @db.Text
+  avatar      String?
+
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  serviceProfessionals ServiceProfessional[]
+  professionalLocations ProfessionalLocation[]
+  appointments Appointment[]
+
+  @@index([businessId])
+  @@map("professionals")
+}
+
+// Junction: Which professionals can provide which services
+model ServiceProfessional {
+  id             String   @id @default(cuid())
+
+  serviceId      String
+  service        Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime @default(now())
+
+  @@unique([serviceId, professionalId])
+  @@map("service_professionals")
+}
+
+// Junction: Which professionals work at which locations on which days
+model ProfessionalLocation {
+  id             String      @id @default(cuid())
+  daysOfWeek     DayOfWeek[] // Days they work at this location
+
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  locationId     String
+  location       Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime    @default(now())
+
+  @@unique([professionalId, locationId])
+  @@map("professional_locations")
+}
+
+// ============================================
+// APPOINTMENT MODELS
+// ============================================
+
+enum AppointmentStatus {
+  PENDING          // Waiting for business approval
+  PAYMENT_PENDING  // Approved, waiting for payment
+  CONFIRMED        // Paid and confirmed
+  CANCELLED        // Cancelled by user or business
+  REJECTED         // Rejected by business
+  EXPIRED          // Approval window expired
+  COMPLETED        // Service completed
+  NO_SHOW          // User didn't show up
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Appointment {
+  id                String   @id @default(cuid())
+
+  // Date & Time
+  appointmentDate   DateTime @db.Date
+  startTime         String   // HH:MM format
+  endTime           String   // HH:MM format
+
+  // Status
+  status            AppointmentStatus @default(PENDING)
+  paymentStatus     PaymentStatus     @default(PENDING)
+
+  // Pricing
+  servicePrice      Float    // Price at time of booking
+  depositAmount     Float?
+  totalAmount       Float    // Total with platform fee
+  platformFee       Float    // 1% platform fee
+  totalPaid         Float    @default(0)
+
+  // Notes
+  customerNotes     String?  @db.Text
+  internalNotes     String?  @db.Text // Business-only notes
+
+  // Approval tracking
+  approvalDeadline  DateTime?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  rejectionReason   String?  @db.Text
+
+  // Conflict detection
+  hasConflict       Boolean  @default(false)
+  conflictNotes     String?  @db.Text
+
+  // Cancellation
+  cancelledAt       DateTime?
+  cancellationReason String? @db.Text
+
+  // Completion
+  confirmedAt       DateTime?
+  completedAt       DateTime?
+
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  businessId        String
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  serviceId         String
+  service           Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  professionalId    String?
+  professional      Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+
+  payments          Payment[]
+  rescheduleHistory AppointmentReschedule[]
+
+  @@index([userId])
+  @@index([businessId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([appointmentDate])
+  @@index([createdAt])
+  @@map("appointments")
+}
+
+model AppointmentReschedule {
+  id            String   @id @default(cuid())
+
+  oldDate       DateTime @db.Date
+  oldStartTime  String
+  newDate       DateTime @db.Date
+  newStartTime  String
+
+  reason        String?  @db.Text
+  initiatedBy   String   // userId who requested reschedule
+
+  createdAt     DateTime @default(now())
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@map("appointment_reschedules")
+}
+
+// ============================================
+// PAYMENT MODELS
+// ============================================
+
+enum PaymentType {
+  DEPOSIT
+  FULL_PAYMENT
+  REFUND
+  CASH
+}
+
+model Payment {
+  id                String      @id @default(cuid())
+
+  // MercadoPago
+  mercadoPagoId     String?     @unique
+  preferenceId      String?     // MP preference ID
+  paymentLink       String?     // MP checkout link
+
+  // Payment details
+  amount            Float
+  platformFee       Float       // Amount kept by platform
+  netAmount         Float       // Amount to business
+  currency          String      @default("ARS")
+
+  type              PaymentType
+  status            PaymentStatus @default(PENDING)
+
+  // Metadata
+  metadata          Json?       // Store additional MP data
+
+  // Timestamps
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime    @default(now())
+
+  // Relations
+  appointmentId     String
+  appointment       Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@index([mercadoPagoId])
+  @@index([status])
+  @@map("payments")
+}
+
+model MercadoPagoAccount {
+  id            String   @id @default(cuid())
+
+  // MercadoPago account info
+  mpUserId      String   @unique
+  accessToken   String   // Encrypted
+  refreshToken  String?  // Encrypted
+  publicKey     String
+
+  isActive      Boolean  @default(true)
+
+  // Timestamps
+  connectedAt   DateTime @default(now())
+  lastSyncAt    DateTime @default(now())
+
+  // Relations
+  businessId    String   @unique
+  business      Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("mercadopago_accounts")
+}
+
+// ============================================
+// REVIEW MODELS
+// ============================================
+
+model Review {
+  id          String   @id @default(cuid())
+  rating      Int      // 1-5 stars
+  comment     String?  @db.Text
+  response    String?  @db.Text // Business response
+
+  isPublished Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  respondedAt DateTime?
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+// ============================================
+// MESSAGING MODELS
+// ============================================
+
+model Message {
+  id          String   @id @default(cuid())
+  content     String   @db.Text
+  isRead      Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  readAt      DateTime?
+
+  // Relations
+  senderId    String
+  sender      User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  // TODO: Add receiverId and conversation model if needed
+
+  @@index([senderId])
+  @@map("messages")
+}
+
+// ============================================
+// NOTIFICATION MODELS
+// ============================================
+
+enum NotificationType {
+  APPOINTMENT_REQUEST
+  APPOINTMENT_APPROVED
+  APPOINTMENT_REJECTED
+  PAYMENT_REQUIRED
+  PAYMENT_CONFIRMED
+  APPOINTMENT_REMINDER_24H
+  APPOINTMENT_REMINDER_1H
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_RESCHEDULED
+  REFUND_PROCESSED
+  NEW_REVIEW
+  NEW_MESSAGE
+  SUBSCRIPTION_EXPIRING
+}
+
+model UserNotification {
+  id        String   @id @default(cuid())
+  type      NotificationType
+  title     String
+  message   String   @db.Text
+
+  isRead    Boolean  @default(false)
+
+  // Optional link
+  link      String?
+
+  createdAt DateTime @default(now())
+  readAt    DateTime?
+
+  // Relations
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("user_notifications")
+}
+
+// ============================================
+// NEWS MODELS
+// ============================================
+
+model NewsPost {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String   @db.Text
+  excerpt     String?
+
+  coverImage  String?
+
+  isPublished Boolean  @default(false)
+  publishedAt DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+  @@index([isPublished])
+  @@map("news_posts")
+}
+
+// ============================================
+// ANALYTICS MODELS
+// ============================================
+
+model BusinessAnalytics {
+  id                String   @id @default(cuid())
+  date              DateTime @db.Date
+
+  // Metrics
+  totalBookings     Int      @default(0)
+  confirmedBookings Int      @default(0)
+  cancelledBookings Int      @default(0)
+  revenue           Float    @default(0)
+  averageRating     Float?
+
+  businessId        String
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  createdAt         DateTime @default(now())
+
+  @@unique([businessId, date])
+  @@index([businessId])
+  @@map("business_analytics")
+}
