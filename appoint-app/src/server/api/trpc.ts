@@ -5,10 +5,10 @@
 
 import { initTRPC, TRPCError } from '@trpc/server';
 import { type CreateNextContextOptions } from '@trpc/server/adapters/next';
-import superjson from 'superjson';
 import { ZodError } from 'zod';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/db/prisma';
+import { getOrCreateUser } from '@/server/services/user-sync';
 
 /**
  * 1. CONTEXT
@@ -21,13 +21,40 @@ import { prisma } from '@/lib/db/prisma';
 export const createTRPCContext = async (opts: CreateNextContextOptions) => {
   const { req, res } = opts;
 
+  console.log('[tRPC Context] Creating context...');
+
   // Get auth session from Clerk (works for both web cookies and mobile JWT)
   const session = await auth();
+  const userId = session?.userId ?? null;
+
+  console.log('[tRPC Context] Session:', { userId, hasSession: !!session });
+
+  // Ensure user exists in our database (sync from Clerk if needed)
+  let dbUser = null;
+  if (userId) {
+    console.log('[tRPC Context] User is authenticated, syncing to DB...');
+    try {
+      dbUser = await getOrCreateUser(userId);
+      console.log('[tRPC Context] User synced:', { id: dbUser.id, email: dbUser.email });
+    } catch (error: any) {
+      console.error('[tRPC Context] Error syncing user:', error);
+      console.error('[tRPC Context] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        userId,
+      });
+      // Continue without user if sync fails (shouldn't happen, but graceful degradation)
+      // The client-side sync hook will retry
+    }
+  } else {
+    console.log('[tRPC Context] No authenticated user (public request)');
+  }
 
   return {
     prisma,
     session,
-    userId: session?.userId ?? null,
+    userId,
+    dbUser, // Our database user record
     req,
     res,
   };
@@ -40,7 +67,6 @@ export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
  * This is where the tRPC API is initialized, connecting the context and transformer.
  */
 const t = initTRPC.context<typeof createTRPCContext>().create({
-  transformer: superjson,
   errorFormatter({ shape, error }) {
     return {
       ...shape,

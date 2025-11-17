@@ -5,6 +5,14 @@
 
 import { createTRPCRouter } from './trpc';
 import { businessesRouter } from './routers/v1/businesses';
+import { locationsRouter } from './routers/v1/locations';
+import { servicesRouter } from './routers/v1/services';
+import { appointmentsRouter } from './routers/v1/appointments';
+import { availabilityRouter } from './routers/v1/availability';
+import { paymentsRouter } from './routers/v1/payments';
+import { reviewsRouter } from './routers/v1/reviews';
+import { usersRouter } from './routers/v1/users';
+import { categoriesRouter } from './routers/v1/categories';
 
 /**
  * This is the primary router for your server.
@@ -18,10 +26,14 @@ export const appRouter = createTRPCRouter({
   // Version 1 API
   v1: createTRPCRouter({
     businesses: businessesRouter,
-    // Add more routers here:
-    // appointments: appointmentsRouter,
-    // services: servicesRouter,
-    // etc.
+    locations: locationsRouter,
+    services: servicesRouter,
+    appointments: appointmentsRouter,
+    availability: availabilityRouter,
+    payments: paymentsRouter,
+    reviews: reviewsRouter,
+    users: usersRouter,
+    categories: categoriesRouter,
   }),
 
   // Version 2 API (future)
