@@ -36,26 +36,42 @@ export const businessesRouter = createTRPCRouter({
           province: z.string().optional(),
           search: z.string().optional(),
         })
-        .optional()
         .default({ page: 1, limit: 20 })
     )
     .query(async ({ ctx, input }) => {
+      // Ensure input is always defined with defaults
+      const filters = {
+        page: input?.page ?? 1,
+        limit: input?.limit ?? 20,
+        categoryId: input?.categoryId,
+        province: input?.province,
+        search: input?.search,
+      };
+
       const where = {
         status: "ACTIVE" as const,
         subscriptionStatus: "ACTIVE",
-        ...(input.categoryId && {
+        ...(filters.categoryId && {
           categories: {
             some: {
-              id: input.categoryId,
+              id: filters.categoryId,
             },
           },
         }),
-        ...(input.search && {
+        ...(filters.province && {
+          locations: {
+            some: {
+              province: filters.province,
+              isActive: true,
+            },
+          },
+        }),
+        ...(filters.search && {
           OR: [
-            { name: { contains: input.search, mode: "insensitive" as const } },
+            { name: { contains: filters.search, mode: "insensitive" as const } },
             {
               description: {
-                contains: input.search,
+                contains: filters.search,
                 mode: "insensitive" as const,
               },
             },
@@ -79,8 +95,8 @@ export const businessesRouter = createTRPCRouter({
             },
           },
           orderBy: { createdAt: "desc" },
-          skip: (input.page - 1) * input.limit,
-          take: input.limit,
+          skip: (filters.page - 1) * filters.limit,
+          take: filters.limit,
         }),
         ctx.prisma.business.count({ where }),
       ]);
@@ -88,10 +104,10 @@ export const businessesRouter = createTRPCRouter({
       return {
         businesses,
         pagination: {
-          page: input.page,
-          limit: input.limit,
+          page: filters.page,
+          limit: filters.limit,
           total,
-          totalPages: Math.ceil(total / input.limit),
+          totalPages: Math.ceil(total / filters.limit),
         },
       };
     }),

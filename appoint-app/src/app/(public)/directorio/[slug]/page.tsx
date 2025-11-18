@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { MapPin, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { use } from 'react';
+import { MainNav } from '@/components/navigation/main-nav';
 
 interface BusinessPageProps {
   params: Promise<{
@@ -21,9 +22,12 @@ export default function BusinessPage({ params }: BusinessPageProps) {
 
   if (isLoading) {
     return (
-      <div className="container py-8">
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">Cargando información del negocio...</p>
+      <div className="flex flex-col min-h-screen">
+        <MainNav />
+        <div className="container py-8">
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Cargando información del negocio...</p>
+          </div>
         </div>
       </div>
     );
@@ -31,12 +35,18 @@ export default function BusinessPage({ params }: BusinessPageProps) {
 
   if (error || !business) {
     return (
-      <div className="container py-8">
-        <div className="text-center py-12">
-          <p className="text-destructive">Error al cargar el negocio</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            {error?.message || 'Negocio no encontrado'}
-          </p>
+      <div className="flex flex-col min-h-screen">
+        <MainNav />
+        <div className="container py-8">
+          <div className="text-center py-12">
+            <p className="text-destructive">Error al cargar el negocio</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {error?.message || 'Negocio no encontrado'}
+            </p>
+            <Link href="/directorio" className="mt-4 inline-block">
+              <Button variant="outline">Volver al directorio</Button>
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -67,11 +77,8 @@ export default function BusinessPage({ params }: BusinessPageProps) {
                   <div className="flex-1">
                     <h3 className="font-semibold">{location.name}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {location.addressLine1}, {location.city}, {location.province}
+                      {location.address}, {location.city}, {location.province}
                     </p>
-                    {location.phone && (
-                      <p className="text-sm text-muted-foreground">{location.phone}</p>
-                    )}
                   </div>
                 </div>
               ))}

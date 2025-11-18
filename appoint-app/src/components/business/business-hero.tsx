@@ -15,10 +15,9 @@ interface BusinessHeroProps {
     locations: Array<{
       id: string;
       name: string;
-      addressLine1: string;
+      address: string;
       city: string;
       province: string;
-      phone: string | null;
     }>;
   };
   averageRating?: number;
@@ -91,7 +90,7 @@ export function BusinessHero({ business, averageRating, reviewCount }: BusinessH
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
                   <span>
-                    {primaryLocation.addressLine1}, {primaryLocation.city}, {primaryLocation.province}
+                    {primaryLocation.address}, {primaryLocation.city}, {primaryLocation.province}
                   </span>
                 </div>
               )}

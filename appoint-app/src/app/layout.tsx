@@ -33,7 +33,11 @@ export default function RootLayout({
         >
           <TRPCProvider>
             {/* UserSyncProvider disabled - user sync happens automatically in tRPC context */}
-            {children}
+            <div className="flex flex-col min-h-screen items-center">
+              <div className="w-full max-w-[1920px]">
+                {children}
+              </div>
+            </div>
           </TRPCProvider>
         </body>
       </html>
